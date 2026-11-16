@@ -17,5 +17,3 @@ log_level = 2
 [app:android]
 permission = INTERNET
 android.accept_sdk_license = True
-# Для Android 10+ и scoped storage:
-# android.private_storage = True
