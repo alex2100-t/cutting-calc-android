@@ -17,7 +17,7 @@ jobs:
         uses: docker://kivy/buildozer:latest
         with:
           entrypoint: sh
-          args: -c "echo y | buildozer android debug"
+          args: -c "yes | buildozer android debug"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
