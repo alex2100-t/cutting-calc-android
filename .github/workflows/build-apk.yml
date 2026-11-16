@@ -1,0 +1,27 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build APK with Buildozer
+        uses: docker://kivy/buildozer:latest
+        with:
+          entrypoint: sh
+          args: -c "buildozer android debug"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CuttingCalc-Android-APK
+          path: bin/*.apk
+          if-no-files-found: error
