@@ -1,14 +1,15 @@
 """
-Калькулятор режимов резания — Android-прототип на Kivy/KivyMD.
+Калькулятор режимов резания — Android-версия на Kivy.
 
 Дизайн повторяет десктопную версию (PyQt6):
-тёмная тема, баннер статуса, карточки результатов 2 колонки,
-индикатор загрузки мощности, цветные замечания.
+тёмная тема, карточки разделов, баннер статуса,
+карточки результатов 2 колонки, индикатор загрузки мощности,
+цветные замечания.
 
 Автор: Aleksey Tikhonov
 
 Запуск на ПК:
-    pip install kivy kivymd
+    pip install kivy
     python main.py
 
 Сборка APK:
@@ -20,25 +21,18 @@ os.environ.setdefault("KIVY_NO_ARGS", "1")
 
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.graphics import Color, RoundedRectangle
+from kivy.core.window import Window
+from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
-from kivy.uix.checkbox import CheckBox
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
-from kivy.uix.progressbar import ProgressBar
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
-from kivy.uix.widget import Widget
+from kivy.uix.textinput import TextInput
 from kivy.utils import get_color_from_hex
-
-from kivymd.app import MDApp
-from kivymd.uix.button import MDRaisedButton, MDTextButton
-from kivymd.uix.card import MDCard
-from kivymd.uix.textfield import MDTextField
-from kivymd.uix.toolbar import MDTopAppBar
 
 from core import catalog as cat
 from core.calculator import CalculationError, calculate
@@ -53,6 +47,7 @@ AUTHOR = "Aleksey Tikhonov"
 C = {
     "bg": get_color_from_hex("#1e2227"),
     "card": get_color_from_hex("#262b32"),
+    "field": get_color_from_hex("#2f3640"),
     "text": get_color_from_hex("#d8dee6"),
     "muted": get_color_from_hex("#8d99a6"),
     "accent": get_color_from_hex("#3d8bfd"),
@@ -63,6 +58,15 @@ C = {
 }
 LEVEL_COLOR = {Level.OK: C["ok"], Level.INFO: C["info"], Level.WARNING: C["warn"], Level.ERROR: C["err"]}
 LEVEL_ICON = {Level.OK: "✔", Level.INFO: "ℹ", Level.WARNING: "⚠", Level.ERROR: "⛔"}
+
+# Короткие подписи для списков (полные названия — в core/catalog.py)
+TOOL_SHORT = {
+    "carbide": "Твёрдый сплав",
+    "hss": "Быстрорежущая сталь (HSS)",
+    "pcd": "PCD (поликристаллический алмаз)",
+    "cbn": "CBN (кубический нитрид бора)",
+}
+RIG_SHORT = {"high": "Высокая", "medium": "Средняя", "low": "Низкая"}
 
 
 def fnum(text, default):
@@ -79,32 +83,107 @@ def inum(text, default):
         return default
 
 
-def styled_label(text, size="14sp", color=None, bold=False, halign="left", h=None):
-    lbl = Label(text=text, font_size=size, halign=halign, valign="middle",
-                color=color or C["text"], size_hint_y=None, height=h or 32)
+def make_label(text, size="14sp", color=None, bold=False, halign="left"):
+    """Подпись с автоматической высотой (перенос строк, без обрезки)."""
+    lbl = Label(text=text, font_size=size, halign=halign, valign="top",
+                color=color or C["text"], size_hint_y=None, height=22)
     lbl.bold = bold
     lbl.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
+
+    def _fit(i, ts):
+        i.height = max(22, ts[1] + 6)
+
+    lbl.bind(texture_size=_fit)
     return lbl
 
 
-class Card(MDCard):
+def make_input(default, hint=""):
+    return TextInput(text=str(default), hint_text=hint, multiline=False,
+                     font_size="16sp", size_hint_y=None, height=52,
+                     background_color=C["field"], foreground_color=C["text"],
+                     hint_text_color=C["muted"], padding=[12, 14, 12, 14],
+                     cursor_color=C["accent"])
+
+
+def make_spinner(values, text, font_size="14sp"):
+    return Spinner(values=values, text=text, size_hint_y=None, height=48,
+                   font_size=font_size, color=C["text"],
+                   background_color=C["field"])
+
+
+def make_button(text, bg=None, height=52, font_size="16sp"):
+    bg = bg or C["field"]
+    return Button(text=text, size_hint_y=None, height=height, font_size=font_size,
+                  color=C["text"], bold=True, background_color=bg)
+
+
+def show_popup(title, msg):
+    content = BoxLayout(orientation="vertical", padding=16, spacing=10)
+    content.add_widget(make_label(msg, size="14sp"))
+    Popup(title=title, content=content, size_hint=(0.9, 0.45)).open()
+
+
+class Header(BoxLayout):
+    """Верхняя панель с заголовком экрана."""
+
+    def __init__(self, title, **kwargs):
+        super().__init__(orientation="horizontal", size_hint_y=None, height=56,
+                         padding=[16, 0, 16, 0], **kwargs)
+        with self.canvas.before:
+            Color(rgba=C["card"])
+            self._bg = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._sync, size=self._sync)
+        lbl = Label(text=title, font_size="17sp", bold=True, color=C["text"],
+                    halign="left", valign="middle")
+        lbl.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
+        self.add_widget(lbl)
+
+    def _sync(self, *a):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
+
+
+class SectionCard(BoxLayout):
+    """Карточка раздела: тёмный фон, автоматическая высота по содержимому."""
+
+    def __init__(self, title, **kwargs):
+        super().__init__(orientation="vertical", spacing=8,
+                         padding=[14, 12, 14, 12], size_hint_y=None, **kwargs)
+        self.bind(minimum_height=self.setter("height"))
+        with self.canvas.before:
+            Color(rgba=C["card"])
+            self._bg = RoundedRectangle(pos=self.pos, size=self.size,
+                                        radius=[10, 10, 10, 10])
+        self.bind(pos=self._sync, size=self._sync)
+        self.add_widget(make_label(title, size="13sp", color=C["muted"], bold=True))
+        self.box = self  # поля добавляются прямо в карточку
+
+    def _sync(self, *a):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
+
+
+class Card(BoxLayout):
     """Карточка результата как в десктопной версии: заголовок / значение / единица."""
 
     def __init__(self, title, **kwargs):
-        super().__init__(**kwargs)
-        self.md_bg_color = C["card"]
-        self.radius = [8]
-        self.padding = "8dp"
-        self.size_hint_y = None
-        self.height = 92
-        box = BoxLayout(orientation="vertical", spacing=0, padding="4dp")
-        self.t = styled_label(title, size="11sp", color=C["muted"], h=20)
-        self.v = styled_label("—", size="22sp", bold=True, h=34)
-        self.u = styled_label("", size="11sp", color=C["muted"], h=18)
-        box.add_widget(self.t)
-        box.add_widget(self.v)
-        box.add_widget(self.u)
-        self.add_widget(box)
+        super().__init__(orientation="vertical", spacing=2,
+                         padding=[10, 8, 10, 8], size_hint_y=None, height=100, **kwargs)
+        with self.canvas.before:
+            Color(rgba=C["card"])
+            self._bg = RoundedRectangle(pos=self.pos, size=self.size,
+                                        radius=[8, 8, 8, 8])
+        self.bind(pos=self._sync, size=self._sync)
+        self.t = make_label(title, size="11sp", color=C["muted"])
+        self.v = make_label("—", size="22sp", bold=True)
+        self.u = make_label("", size="11sp", color=C["muted"])
+        self.add_widget(self.t)
+        self.add_widget(self.v)
+        self.add_widget(self.u)
+
+    def _sync(self, *a):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
 
     def set(self, value, unit="", level=Level.OK):
         self.v.text = str(value)
@@ -117,17 +196,66 @@ class Card(MDCard):
         self.v.color = col
 
 
-class SectionCard(MDCard):
-    def __init__(self, title, **kwargs):
-        super().__init__(**kwargs)
-        self.md_bg_color = C["card"]
-        self.radius = [10]
-        self.padding = "12dp"
-        self.size_hint_y = None
-        self.box = BoxLayout(orientation="vertical", spacing=8, size_hint_y=None)
-        self.box.bind(minimum_height=self.box.setter("height"))
-        self.add_widget(styled_label(title, size="13sp", color=C["muted"], bold=True, h=24))
-        self.add_widget(self.box)
+class Banner(BoxLayout):
+    """Баннер статуса с фоном в цвет статуса."""
+
+    def __init__(self, **kwargs):
+        super().__init__(orientation="vertical", size_hint_y=None, height=58,
+                         padding=[12, 6, 12, 6], **kwargs)
+        with self.canvas.before:
+            self._col = Color(rgba=C["card"])
+            self._bg = RoundedRectangle(pos=self.pos, size=self.size,
+                                        radius=[0, 0, 0, 0])
+        self.bind(pos=self._sync, size=self._sync)
+        self.lbl = Label(text="", font_size="15sp", bold=True, halign="center",
+                         valign="middle", color=C["text"])
+        self.lbl.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
+        self.add_widget(self.lbl)
+
+    def _sync(self, *a):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
+
+    def set_status(self, text, color):
+        self.lbl.text = text
+        self.lbl.color = color
+        r, g, b, _ = color
+        self._col.rgba = (r, g, b, 0.22)
+
+
+class PowerBar(BoxLayout):
+    """Индикатор загрузки мощности: дорожка + цветная заливка."""
+
+    MAX = 150.0
+
+    def __init__(self, **kwargs):
+        super().__init__(orientation="horizontal", size_hint_y=None, height=22, **kwargs)
+        self._value = 0.0
+        with self.canvas.before:
+            Color(rgba=C["field"])
+            self._track = RoundedRectangle(pos=self.pos, size=self.size,
+                                           radius=[6, 6, 6, 6])
+            self._fill_col = Color(rgba=C["ok"])
+            self._fill = RoundedRectangle(pos=self.pos, size=(0, self.height),
+                                          radius=[6, 6, 6, 6])
+        self.bind(pos=self._sync, size=self._sync)
+
+    def _sync(self, *a):
+        self._track.pos = self.pos
+        self._track.size = self.size
+        w = self.width * min(1.0, self._value / self.MAX)
+        self._fill.pos = self.pos
+        self._fill.size = (w, self.height)
+
+    def set_value(self, pct):
+        self._value = float(pct)
+        if pct <= 70:
+            self._fill_col.rgba = C["ok"]
+        elif pct <= 100:
+            self._fill_col.rgba = C["warn"]
+        else:
+            self._fill_col.rgba = C["err"]
+        self._sync()
 
 
 class InputScreen(Screen):
@@ -138,8 +266,7 @@ class InputScreen(Screen):
 
     def _build_ui(self):
         root = BoxLayout(orientation="vertical")
-        root.add_widget(MDTopAppBar(title=APP_TITLE, md_bg_color=C["card"],
-                                     specific_text_color=C["text"]))
+        root.add_widget(Header(APP_TITLE))
 
         scroll = ScrollView()
         outer = BoxLayout(orientation="vertical", spacing=10, padding=10, size_hint_y=None)
@@ -149,111 +276,92 @@ class InputScreen(Screen):
 
         # --- Операция ---
         sec = SectionCard("ОПЕРАЦИЯ")
-        sec.box.add_widget(styled_label("Вид обработки / операция"))
-        self.sp_op = Spinner(text="", size_hint_y=None, height=48)
-        self.sp_op.values = [op.title for op in Operation]
-        self.sp_op.text = Operation.TURN_ROUGH.title
+        sec.box.add_widget(make_label("Вид обработки / операция"))
+        self.sp_op = make_spinner([op.title for op in Operation], Operation.TURN_ROUGH.title)
         self.sp_op.bind(text=self._on_operation_changed)
         sec.box.add_widget(self.sp_op)
-        self.lbl_desc = styled_label("", size="13sp", color=C["muted"], h=40)
+        self.lbl_desc = make_label("", size="13sp", color=C["muted"])
         sec.box.add_widget(self.lbl_desc)
         outer.add_widget(sec)
 
         # --- Материал ---
         sec = SectionCard("МАТЕРИАЛ")
-        sec.box.add_widget(styled_label("Марка / материал (ГОСТ/ISO)"))
-        self.sp_mat = Spinner(text="", size_hint_y=None, height=48)
-        self.sp_mat.values = [m.name for m in cat.MATERIALS.values()]
-        self.sp_mat.text = cat.MATERIALS["st45"].name
+        sec.box.add_widget(make_label("Марка / материал (ГОСТ/ISO)"))
+        self.sp_mat = make_spinner([m.name for m in cat.MATERIALS.values()],
+                                   cat.MATERIALS["st45"].name)
         sec.box.add_widget(self.sp_mat)
-        self.lbl_mat_info = styled_label("", size="12sp", color=C["muted"], h=44)
+        self.lbl_mat_info = make_label("", size="12sp", color=C["muted"])
         self.lbl_mat_info.bind(text=self._on_material_changed)
         sec.box.add_widget(self.lbl_mat_info)
         outer.add_widget(sec)
 
         # --- Инструмент ---
         sec = SectionCard("ИНСТРУМЕНТ")
-        sec.box.add_widget(styled_label("Тип инструмента"))
-        self.sp_tool = Spinner(text="", size_hint_y=None, height=48)
-        self.sp_tool.values = [t.name for t in cat.TOOL_TYPES.values()]
-        self.sp_tool.text = cat.TOOL_TYPES["carbide"].name
+        sec.box.add_widget(make_label("Тип инструмента"))
+        self.sp_tool = make_spinner([TOOL_SHORT[k] for k in cat.TOOL_TYPES],
+                                    TOOL_SHORT["carbide"])
+        self.sp_tool.bind(text=self._on_tool_changed)
         sec.box.add_widget(self.sp_tool)
-        row = BoxLayout(orientation="horizontal", size_hint_y=None, height=44)
-        row.add_widget(styled_label("Покрытие (TiN / TiAlN)"))
-        self.chk_coat = CheckBox(active=True)
-        row.add_widget(self.chk_coat)
-        sec.box.add_widget(row)
+        self.lbl_tool_info = make_label("", size="12sp", color=C["muted"])
+        sec.box.add_widget(self.lbl_tool_info)
+        self.coated = True
+        self.btn_coat = make_button("Покрытие: ВКЛ", height=48, font_size="14sp")
+        self.btn_coat.bind(on_press=self._on_coat_toggle)
+        sec.box.add_widget(self.btn_coat)
         self.inputs = {}
-
-        def add_num(key, hint, default):
-            ti = MDTextField(hint_text=hint, text=str(default), mode="rectangle",
-                             size_hint_y=None, height=52, font_size="16sp")
-            sec.box.add_widget(ti)
-            self.inputs[key] = ti
-
-        add_num("d", "Диаметр D / сечение, мм", 25)
-        add_num("z", "Число зубьев z", 1)
-        add_num("l", "Вылет L, мм", 40)
-        add_num("r", "Радиус при вершине r, мм", 0.8)
+        self._add_field(sec, "d", "Диаметр D / сечение, мм", 25)
+        self._add_field(sec, "z", "Число зубьев z", 1)
+        self._add_field(sec, "l", "Вылет L, мм", 40)
+        self._add_field(sec, "r", "Радиус при вершине r, мм", 0.8)
         outer.add_widget(sec)
 
         # --- Параметры ---
         sec = SectionCard("ПАРАМЕТРЫ ОПЕРАЦИИ")
-        self.inputs = {**self.inputs}
-
-        def add_num2(key, hint, default):
-            ti = MDTextField(hint_text=hint, text=str(default), mode="rectangle",
-                             size_hint_y=None, height=52, font_size="16sp")
-            sec.box.add_widget(ti)
-            self.inputs[key] = ti
-
-        add_num2("dw", "Диаметр обработки, мм", 60)
-        add_num2("length", "Длина обработки, мм", 50)
-        add_num2("ap", "Глубина резания ap, мм", 2.5)
-        add_num2("ae", "Ширина фрезерования ae, мм", 10)
-        add_num2("life", "Стойкость инструмента T, мин", 60)
-        sec.box.add_widget(styled_label("Требуемая шероховатость Ra, мкм"))
-        self.sp_ra = Spinner(text="6.3", values=[str(v) for v in cat.RA_VALUES],
-                             size_hint_y=None, height=48)
+        self._add_field(sec, "dw", "Диаметр обработки, мм", 60)
+        self._add_field(sec, "length", "Длина обработки, мм", 50)
+        self._add_field(sec, "ap", "Глубина резания ap, мм", 2.5)
+        self._add_field(sec, "ae", "Ширина фрезерования ae, мм", 10)
+        self._add_field(sec, "life", "Стойкость инструмента T, мин", 60)
+        sec.box.add_widget(make_label("Требуемая шероховатость Ra, мкм"))
+        self.sp_ra = make_spinner([str(v) for v in cat.RA_VALUES], "6.3")
         sec.box.add_widget(self.sp_ra)
         outer.add_widget(sec)
 
         # --- Станок ---
         sec = SectionCard("СТАНOK / СПИД")
-        add_num3 = lambda k, h, d: self._add_machine_field(sec, k, h, d)
-        add_num3("n_max", "n_max станка, об/мин", 2000)
-        add_num3("power", "Мощность станка, кВт", 10)
-        add_num3("eta", "КПД привода (0.3–1.0)", 0.85)
-        sec.box.add_widget(styled_label("Жёсткость СПИД"))
-        self.sp_rig = Spinner(text=cat.RIGIDITY["medium"][0], size_hint_y=None, height=48)
-        self.sp_rig.values = [v[0] for v in cat.RIGIDITY.values()]
+        self._add_field(sec, "n_max", "n_max станка, об/мин", 2000)
+        self._add_field(sec, "power", "Мощность станка, кВт", 10)
+        self._add_field(sec, "eta", "КПД привода (0.3–1.0)", 0.85)
+        sec.box.add_widget(make_label("Жёсткость СПИД"))
+        self.sp_rig = make_spinner([RIG_SHORT[k] for k in cat.RIGIDITY], RIG_SHORT["medium"])
+        self.sp_rig.bind(text=self._on_rigidity_changed)
         sec.box.add_widget(self.sp_rig)
+        self.lbl_rig_info = make_label("", size="12sp", color=C["muted"])
+        sec.box.add_widget(self.lbl_rig_info)
         outer.add_widget(sec)
 
-        btn = MDRaisedButton(text="РАССЧИТАТЬ", size_hint_y=None, height=56,
-                             font_size="18sp", md_bg_color=C["accent"])
+        btn = make_button("РАССЧИТАТЬ", bg=C["accent"], height=56, font_size="18sp")
         btn.bind(on_press=self._on_calculate)
         outer.add_widget(btn)
 
-        btn_about = MDTextButton(text="О программе", size_hint_y=None, height=44)
+        btn_about = make_button("О программе", height=44, font_size="14sp")
         btn_about.bind(on_press=self._on_about)
         outer.add_widget(btn_about)
 
         self.add_widget(root)
         self._update_mat_info()
+        self._update_tool_info()
+        self._update_rig_info()
 
-    def _add_machine_field(self, sec, key, hint, default):
-        ti = MDTextField(hint_text=hint, text=str(default), mode="rectangle",
-                         size_hint_y=None, height=52, font_size="16sp")
+    def _add_field(self, sec, key, hint, default):
+        ti = make_input(default, hint)
         sec.box.add_widget(ti)
         self.inputs[key] = ti
 
-    # ---------- Логика (без изменений) ----------
-    def operation(self):
-        for op in Operation:
-            if op.title == self.sp_op.text:
-                return op
-        return Operation.TURN_ROUGH
+    # ---------- Обработчики ----------
+    def _on_coat_toggle(self, *args):
+        self.coated = not self.coated
+        self.btn_coat.text = "Покрытие: ВКЛ" if self.coated else "Покрытие: ВЫКЛ"
 
     def _on_operation_changed(self, *args):
         self._apply_operation_defaults()
@@ -261,11 +369,30 @@ class InputScreen(Screen):
     def _on_material_changed(self, *args):
         self._update_mat_info()
 
+    def _on_tool_changed(self, *args):
+        self._update_tool_info()
+
+    def _on_rigidity_changed(self, *args):
+        self._update_rig_info()
+
     def _update_mat_info(self):
         m = self._material()
         self.lbl_mat_info.text = (
             f"ISO {m.iso} · kc1.1={m.kc11:.0f} · vc={m.vc_ref:.0f} м/мин · HB≈{m.hb_ref:.0f}"
             + (f" · {m.source}" if m.source else ""))
+
+    def _update_tool_info(self):
+        self.lbl_tool_info.text = self._tool_type().name
+
+    def _update_rig_info(self):
+        self.lbl_rig_info.text = cat.RIGIDITY[self._rigidity_key()][0]
+
+    # ---------- Логика (без изменений) ----------
+    def operation(self):
+        for op in Operation:
+            if op.title == self.sp_op.text:
+                return op
+        return Operation.TURN_ROUGH
 
     def _apply_operation_defaults(self):
         op = self.operation()
@@ -290,14 +417,14 @@ class InputScreen(Screen):
         return cat.MATERIALS["st45"]
 
     def _tool_type(self):
-        for t in cat.TOOL_TYPES.values():
-            if t.name == self.sp_tool.text:
+        for k, t in cat.TOOL_TYPES.items():
+            if TOOL_SHORT[k] == self.sp_tool.text:
                 return t
         return cat.TOOL_TYPES["carbide"]
 
     def _rigidity_key(self):
-        for k, (name, _) in cat.RIGIDITY.items():
-            if name == self.sp_rig.text:
+        for k, short in RIG_SHORT.items():
+            if short == self.sp_rig.text:
                 return k
         return "medium"
 
@@ -311,7 +438,7 @@ class InputScreen(Screen):
             hardness=HardnessSpec("default", 0.0),
             tool=ToolSpec(
                 tool_type=tt,
-                coated=bool(self.chk_coat.active and tt.supports_coating),
+                coated=bool(self.coated and tt.supports_coating),
                 diameter=fnum(self.inputs["d"].text, 25),
                 teeth=inum(self.inputs["z"].text, 1) if "z" in fields else 1,
                 overhang=fnum(self.inputs["l"].text, 40),
@@ -340,31 +467,26 @@ class InputScreen(Screen):
             inp = self.build_input()
             res = calculate(inp)
         except CalculationError as e:
-            Popup(title="Ошибка данных", msg=str(e), size_hint=(0.85, 0.4)).open()
+            show_popup("Ошибка данных", str(e))
             return
         except Exception as e:  # noqa: BLE001
-            Popup(title="Ошибка расчёта", msg=str(e), size_hint=(0.85, 0.4)).open()
+            show_popup("Ошибка расчёта", str(e))
             return
         self.parent.get_screen("result").show_result(inp, res)
         self.parent.current = "result"
 
     def _on_about(self, *args):
-        Popup(title="О программе",
-              msg=f"{APP_TITLE}\nKivy-прототип для Android\n\nСоздано: {AUTHOR}",
-              size_hint=(0.85, 0.45)).open()
+        show_popup("О программе",
+                   f"{APP_TITLE}\nKivy-версия для Android\n\nСоздано: {AUTHOR}")
 
 
 class ResultScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(name="result", **kwargs)
         root = BoxLayout(orientation="vertical")
-        root.add_widget(MDTopAppBar(title="Результаты расчёта", md_bg_color=C["card"],
-                                     specific_text_color=C["text"]))
+        root.add_widget(Header("Результаты расчёта"))
 
-        # Баннер статуса (как в десктопной версии)
-        self.banner = Label(text="", size_hint_y=None, height=52, font_size="15sp",
-                            halign="center", valign="middle", bold=True)
-        self.banner.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
+        self.banner = Banner()
         root.add_widget(self.banner)
 
         scroll = ScrollView()
@@ -387,21 +509,20 @@ class ResultScreen(Screen):
             self.grid.add_widget(c)
 
         # Индикатор загрузки мощности
-        self.bar = ProgressBar(max=150, value=0, size_hint_y=None, height=24)
-        outer.add_widget(styled_label("Загрузка мощности станка", size="13sp", color=C["muted"], h=24))
+        outer.add_widget(make_label("Загрузка мощности станка", size="13sp", color=C["muted"]))
+        self.bar = PowerBar()
         outer.add_widget(self.bar)
-        self.bar_label = styled_label("", size="14sp", h=24)
+        self.bar_label = make_label("", size="14sp")
         outer.add_widget(self.bar_label)
 
         # Замечания
-        outer.add_widget(styled_label("ЗАМЕЧАНИЯ И ПРЕДУПРЕЖДЕНИЯ", size="13sp",
-                                      color=C["muted"], bold=True, h=28))
+        outer.add_widget(make_label("ЗАМЕЧАНИЯ И ПРЕДУПРЕЖДЕНИЯ", size="13sp",
+                                    color=C["muted"], bold=True))
         self.msgs = BoxLayout(orientation="vertical", spacing=4, size_hint_y=None)
         self.msgs.bind(minimum_height=self.msgs.setter("height"))
         outer.add_widget(self.msgs)
 
-        btn_back = MDRaisedButton(text="‹ Назад к вводу", size_hint_y=None, height=52,
-                                  md_bg_color=C["accent"])
+        btn_back = make_button("‹ Назад к вводу", bg=C["accent"], height=52)
         btn_back.bind(on_press=lambda *_: setattr(self.parent, "current", "input"))
         outer.add_widget(btn_back)
 
@@ -432,37 +553,34 @@ class ResultScreen(Screen):
         c[14].set(str(r.passes), "шт")
         c[15].set(f"{inp.params.tool_life:.0f}", "мин")
 
-        self.bar.value = min(150, r.load_pct)
+        self.bar.set_value(r.load_pct)
         self.bar_label.text = f"Загрузка мощности: {r.load_pct:.0f} %"
 
         overall = r.overall
         if overall == L.ERROR:
-            self.banner.text = f"⛔ {inp.operation.title} · {inp.material.name} — превышены ограничения"
-            self.banner.color = C["err"]
+            self.banner.set_status(
+                f"⛔ {inp.operation.title} · {inp.material.name} — превышены ограничения", C["err"])
         elif overall == L.WARNING:
-            self.banner.text = f"⚠ {inp.operation.title} · {inp.material.name} — есть предупреждения"
-            self.banner.color = C["warn"]
+            self.banner.set_status(
+                f"⚠ {inp.operation.title} · {inp.material.name} — есть предупреждения", C["warn"])
         else:
-            self.banner.text = f"✔ {inp.operation.title} · {inp.material.name} — режимы в норме"
-            self.banner.color = C["ok"]
+            self.banner.set_status(
+                f"✔ {inp.operation.title} · {inp.material.name} — режимы в норме", C["ok"])
 
         self.msgs.clear_widgets()
         items = r.messages or []
         if not items:
-            self.msgs.add_widget(styled_label("✔ Замечаний нет.", color=C["ok"], h=32))
+            self.msgs.add_widget(make_label("✔ Замечаний нет.", color=C["ok"]))
         for m in items:
-            lbl = styled_label(f"{LEVEL_ICON[m.level]}  {m.text}", size="13sp",
-                               color=LEVEL_COLOR[m.level], h=44)
-            self.msgs.add_widget(lbl)
+            self.msgs.add_widget(make_label(f"{LEVEL_ICON[m.level]}  {m.text}", size="13sp",
+                                            color=LEVEL_COLOR[m.level]))
 
 
-class CuttingApp(MDApp):
+class CuttingApp(App):
     title = APP_TITLE
 
     def build(self):
-        self.theme_cls.theme_style = "Dark"
-        self.theme_cls.primary_palette = "Blue"
-        self.theme_cls.material_style = "M3"
+        Window.clearcolor = C["bg"]
         sm = ScreenManager()
         sm.add_widget(InputScreen())
         sm.add_widget(ResultScreen())
