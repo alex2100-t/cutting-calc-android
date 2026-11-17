@@ -23,6 +23,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.graphics import Color, Rectangle, RoundedRectangle
+from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
@@ -57,7 +58,8 @@ C = {
     "info": get_color_from_hex("#4c9aff"),
 }
 LEVEL_COLOR = {Level.OK: C["ok"], Level.INFO: C["info"], Level.WARNING: C["warn"], Level.ERROR: C["err"]}
-LEVEL_ICON = {Level.OK: "✔", Level.INFO: "ℹ", Level.WARNING: "⚠", Level.ERROR: "⛔"}
+# Текстовые метки вместо эмодзи: в шрифте Roboto нет глифов ✔ ℹ ⚠ ⛔ (показываются квадратиками)
+LEVEL_ICON = {Level.OK: "[OK]", Level.INFO: "[INFO]", Level.WARNING: "[ВНИМАНИЕ]", Level.ERROR: "[ОШИБКА]"}
 
 # Короткие подписи для списков (полные названия — в core/catalog.py)
 TOOL_SHORT = {
@@ -86,12 +88,12 @@ def inum(text, default):
 def make_label(text, size="14sp", color=None, bold=False, halign="left"):
     """Подпись с автоматической высотой (перенос строк, без обрезки)."""
     lbl = Label(text=text, font_size=size, halign=halign, valign="top",
-                color=color or C["text"], size_hint_y=None, height=22)
+                color=color or C["text"], size_hint_y=None, height=dp(22))
     lbl.bold = bold
     lbl.bind(width=lambda i, w: setattr(i, "text_size", (w, None)))
 
     def _fit(i, ts):
-        i.height = max(22, ts[1] + 6)
+        i.height = max(dp(22), ts[1] + dp(6))
 
     lbl.bind(texture_size=_fit)
     return lbl
@@ -99,26 +101,28 @@ def make_label(text, size="14sp", color=None, bold=False, halign="left"):
 
 def make_input(default, hint=""):
     return TextInput(text=str(default), hint_text=hint, multiline=False,
-                     font_size="16sp", size_hint_y=None, height=52,
+                     font_size="16sp", size_hint_y=None, height=dp(52),
                      background_color=C["field"], foreground_color=C["text"],
-                     hint_text_color=C["muted"], padding=[12, 14, 12, 14],
+                     hint_text_color=C["muted"],
+                     padding=[dp(12), dp(14), dp(12), dp(14)],
                      cursor_color=C["accent"])
 
 
 def make_spinner(values, text, font_size="14sp"):
-    return Spinner(values=values, text=text, size_hint_y=None, height=48,
+    return Spinner(values=values, text=text, size_hint_y=None, height=dp(48),
                    font_size=font_size, color=C["text"],
                    background_color=C["field"])
 
 
-def make_button(text, bg=None, height=52, font_size="16sp"):
+def make_button(text, bg=None, height=None, font_size="16sp"):
     bg = bg or C["field"]
-    return Button(text=text, size_hint_y=None, height=height, font_size=font_size,
-                  color=C["text"], bold=True, background_color=bg)
+    return Button(text=text, size_hint_y=None, height=height or dp(52),
+                  font_size=font_size, color=C["text"], bold=True,
+                  background_color=bg)
 
 
 def show_popup(title, msg):
-    content = BoxLayout(orientation="vertical", padding=16, spacing=10)
+    content = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10))
     content.add_widget(make_label(msg, size="14sp"))
     Popup(title=title, content=content, size_hint=(0.9, 0.45)).open()
 
@@ -127,8 +131,8 @@ class Header(BoxLayout):
     """Верхняя панель с заголовком экрана."""
 
     def __init__(self, title, **kwargs):
-        super().__init__(orientation="horizontal", size_hint_y=None, height=56,
-                         padding=[16, 0, 16, 0], **kwargs)
+        super().__init__(orientation="horizontal", size_hint_y=None, height=dp(56),
+                         padding=[dp(16), 0, dp(16), 0], **kwargs)
         with self.canvas.before:
             Color(rgba=C["card"])
             self._bg = Rectangle(pos=self.pos, size=self.size)
@@ -147,13 +151,14 @@ class SectionCard(BoxLayout):
     """Карточка раздела: тёмный фон, автоматическая высота по содержимому."""
 
     def __init__(self, title, **kwargs):
-        super().__init__(orientation="vertical", spacing=8,
-                         padding=[14, 12, 14, 12], size_hint_y=None, **kwargs)
+        super().__init__(orientation="vertical", spacing=dp(8),
+                         padding=[dp(14), dp(12), dp(14), dp(12)],
+                         size_hint_y=None, **kwargs)
         self.bind(minimum_height=self.setter("height"))
         with self.canvas.before:
             Color(rgba=C["card"])
             self._bg = RoundedRectangle(pos=self.pos, size=self.size,
-                                        radius=[10, 10, 10, 10])
+                                        radius=[dp(10)] * 4)
         self.bind(pos=self._sync, size=self._sync)
         self.add_widget(make_label(title, size="13sp", color=C["muted"], bold=True))
         self.box = self  # поля добавляются прямо в карточку
@@ -167,12 +172,13 @@ class Card(BoxLayout):
     """Карточка результата как в десктопной версии: заголовок / значение / единица."""
 
     def __init__(self, title, **kwargs):
-        super().__init__(orientation="vertical", spacing=2,
-                         padding=[10, 8, 10, 8], size_hint_y=None, height=100, **kwargs)
+        super().__init__(orientation="vertical", spacing=dp(2),
+                         padding=[dp(10), dp(8), dp(10), dp(8)],
+                         size_hint_y=None, height=dp(100), **kwargs)
         with self.canvas.before:
             Color(rgba=C["card"])
             self._bg = RoundedRectangle(pos=self.pos, size=self.size,
-                                        radius=[8, 8, 8, 8])
+                                        radius=[dp(8)] * 4)
         self.bind(pos=self._sync, size=self._sync)
         self.t = make_label(title, size="11sp", color=C["muted"])
         self.v = make_label("—", size="22sp", bold=True)
@@ -200,8 +206,8 @@ class Banner(BoxLayout):
     """Баннер статуса с фоном в цвет статуса."""
 
     def __init__(self, **kwargs):
-        super().__init__(orientation="vertical", size_hint_y=None, height=58,
-                         padding=[12, 6, 12, 6], **kwargs)
+        super().__init__(orientation="vertical", size_hint_y=None, height=dp(58),
+                         padding=[dp(12), dp(6), dp(12), dp(6)], **kwargs)
         with self.canvas.before:
             self._col = Color(rgba=C["card"])
             self._bg = RoundedRectangle(pos=self.pos, size=self.size,
@@ -229,15 +235,15 @@ class PowerBar(BoxLayout):
     MAX = 150.0
 
     def __init__(self, **kwargs):
-        super().__init__(orientation="horizontal", size_hint_y=None, height=22, **kwargs)
+        super().__init__(orientation="horizontal", size_hint_y=None, height=dp(22), **kwargs)
         self._value = 0.0
         with self.canvas.before:
             Color(rgba=C["field"])
             self._track = RoundedRectangle(pos=self.pos, size=self.size,
-                                           radius=[6, 6, 6, 6])
+                                           radius=[dp(6)] * 4)
             self._fill_col = Color(rgba=C["ok"])
             self._fill = RoundedRectangle(pos=self.pos, size=(0, self.height),
-                                          radius=[6, 6, 6, 6])
+                                          radius=[dp(6)] * 4)
         self.bind(pos=self._sync, size=self._sync)
 
     def _sync(self, *a):
@@ -269,10 +275,11 @@ class InputScreen(Screen):
         root.add_widget(Header(APP_TITLE))
 
         scroll = ScrollView()
-        outer = BoxLayout(orientation="vertical", spacing=10, padding=10, size_hint_y=None)
+        outer = BoxLayout(orientation="vertical", spacing=dp(10),
+                          padding=dp(10), size_hint_y=None)
         outer.bind(minimum_height=outer.setter("height"))
         scroll.add_widget(outer)
-        root.add_widget(scroll, 1)
+        root.add_widget(scroll)
 
         # --- Операция ---
         sec = SectionCard("ОПЕРАЦИЯ")
@@ -305,7 +312,7 @@ class InputScreen(Screen):
         self.lbl_tool_info = make_label("", size="12sp", color=C["muted"])
         sec.box.add_widget(self.lbl_tool_info)
         self.coated = True
-        self.btn_coat = make_button("Покрытие: ВКЛ", height=48, font_size="14sp")
+        self.btn_coat = make_button("Покрытие: ВКЛ", height=dp(48), font_size="14sp")
         self.btn_coat.bind(on_press=self._on_coat_toggle)
         sec.box.add_widget(self.btn_coat)
         self.inputs = {}
@@ -340,11 +347,11 @@ class InputScreen(Screen):
         sec.box.add_widget(self.lbl_rig_info)
         outer.add_widget(sec)
 
-        btn = make_button("РАССЧИТАТЬ", bg=C["accent"], height=56, font_size="18sp")
+        btn = make_button("РАССЧИТАТЬ", bg=C["accent"], height=dp(56), font_size="18sp")
         btn.bind(on_press=self._on_calculate)
         outer.add_widget(btn)
 
-        btn_about = make_button("О программе", height=44, font_size="14sp")
+        btn_about = make_button("О программе", height=dp(44), font_size="14sp")
         btn_about.bind(on_press=self._on_about)
         outer.add_widget(btn_about)
 
@@ -490,13 +497,14 @@ class ResultScreen(Screen):
         root.add_widget(self.banner)
 
         scroll = ScrollView()
-        outer = BoxLayout(orientation="vertical", spacing=10, padding=10, size_hint_y=None)
+        outer = BoxLayout(orientation="vertical", spacing=dp(10),
+                          padding=dp(10), size_hint_y=None)
         outer.bind(minimum_height=outer.setter("height"))
         scroll.add_widget(outer)
-        root.add_widget(scroll, 1)
+        root.add_widget(scroll)
 
         # Сетка карточек 2 колонки (на телефоне удобнее, чем 4)
-        self.grid = GridLayout(cols=2, spacing=8, size_hint_y=None)
+        self.grid = GridLayout(cols=2, spacing=dp(8), size_hint_y=None)
         self.grid.bind(minimum_height=self.grid.setter("height"))
         outer.add_widget(self.grid)
 
@@ -518,11 +526,11 @@ class ResultScreen(Screen):
         # Замечания
         outer.add_widget(make_label("ЗАМЕЧАНИЯ И ПРЕДУПРЕЖДЕНИЯ", size="13sp",
                                     color=C["muted"], bold=True))
-        self.msgs = BoxLayout(orientation="vertical", spacing=4, size_hint_y=None)
+        self.msgs = BoxLayout(orientation="vertical", spacing=dp(4), size_hint_y=None)
         self.msgs.bind(minimum_height=self.msgs.setter("height"))
         outer.add_widget(self.msgs)
 
-        btn_back = make_button("‹ Назад к вводу", bg=C["accent"], height=52)
+        btn_back = make_button("‹ Назад к вводу", bg=C["accent"], height=dp(52))
         btn_back.bind(on_press=lambda *_: setattr(self.parent, "current", "input"))
         outer.add_widget(btn_back)
 
@@ -559,18 +567,18 @@ class ResultScreen(Screen):
         overall = r.overall
         if overall == L.ERROR:
             self.banner.set_status(
-                f"⛔ {inp.operation.title} · {inp.material.name} — превышены ограничения", C["err"])
+                f"{inp.operation.title} · {inp.material.name} — превышены ограничения", C["err"])
         elif overall == L.WARNING:
             self.banner.set_status(
-                f"⚠ {inp.operation.title} · {inp.material.name} — есть предупреждения", C["warn"])
+                f"{inp.operation.title} · {inp.material.name} — есть предупреждения", C["warn"])
         else:
             self.banner.set_status(
-                f"✔ {inp.operation.title} · {inp.material.name} — режимы в норме", C["ok"])
+                f"{inp.operation.title} · {inp.material.name} — режимы в норме", C["ok"])
 
         self.msgs.clear_widgets()
         items = r.messages or []
         if not items:
-            self.msgs.add_widget(make_label("✔ Замечаний нет.", color=C["ok"]))
+            self.msgs.add_widget(make_label("[OK] Замечаний нет.", color=C["ok"]))
         for m in items:
             self.msgs.add_widget(make_label(f"{LEVEL_ICON[m.level]}  {m.text}", size="13sp",
                                             color=LEVEL_COLOR[m.level]))
