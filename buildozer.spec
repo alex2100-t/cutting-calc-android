@@ -16,4 +16,7 @@ log_level = 2
 [app:android]
 permission = INTERNET
 android.accept_sdk_license = True
+android.api = 33
+android.minapi = 24
+android.ndk = 25.2.9519653
 android.archs = arm64-v8a
